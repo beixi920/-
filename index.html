@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>单骑 · 汉字塔防</title>
+
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles-battle.css" />
+</head>
+
+<body>
+
+  <!-- ===== 场景一：开始页 =====
+       is-active 决定哪个场景显示；JS 只切这个 class，不直接写 style.display。 -->
+  <section class="scene is-active" id="scene-menu">
+    <h1 class="title">单骑 · 汉字塔防</h1>
+
+    <!-- 局外：金币 / 军衔（存 localStorage，读档失败回退新档） -->
+    <div class="meta-bar">
+      <span class="meta-gold">金币 <b id="menu-gold">0</b></span>
+      <span class="meta-rank"><b id="menu-rank">军士</b> <span id="menu-stars">☆☆☆</span></span>
+    </div>
+
+    <button class="seal" id="btn-start" type="button">开始游戏</button>
+
+    <!-- 武器库入口：点开下面的简版列表 -->
+    <button class="menu-entry" id="btn-armory" type="button">武器库</button>
+
+    <!-- 难度：只影响对手的反应速度和失误率，不改玩家规则。默认普通 -->
+    <div class="difficulty" role="group" aria-label="对手难度">
+      <button class="diff-btn" id="btn-diff-easy" type="button">简单</button>
+      <button class="diff-btn is-on" id="btn-diff-normal" type="button">普通</button>
+      <button class="diff-btn" id="btn-diff-hard" type="button">困难</button>
+    </div>
+
+    <p class="result" id="menu-hint" role="status" aria-live="polite"></p>
+
+    <!-- 武器库：简版列表，不做美术。is-on 控制显示，和场景切换互不干扰。 -->
+    <div class="armory" id="armory">
+      <div class="armory-head">
+        <span class="armory-title">武器库</span>
+        <select class="armory-select" id="armory-hero" aria-label="装备给哪个武将"></select>
+        <button class="armory-close" id="btn-armory-close" type="button">关闭</button>
+      </div>
+      <div class="armory-list" id="armory-list"></div>
+      <button class="menu-entry" id="btn-wipe" type="button">清空存档</button>
+    </div>
+  </section>
+
+  <!-- ===== 场景二：战斗 =====
+       一整块 8×10 棋盘：上半场行 0–4 是对手，下半场行 5–9 是玩家（180° 旋转对称）。 -->
+  <section class="scene" id="scene-battle">
+
+    <!-- 顶部一条：返回 + 对手心 + 波次/倒计时 + 玩家心 -->
+    <div class="duel-bar">
+      <!-- 纯装饰：暂停牌 / 道具小图标，pointer-events:none，不参与任何交互 -->
+      <span class="hud-deco hud-deco--pause" aria-hidden="true"><i></i><i></i></span>
+      <button class="back" id="btn-back" type="button">返回</button>
+
+      <span class="duel-side">
+        <span class="duel-tag">敌</span>
+        <span class="hud-hearts" id="hud-hearts-foe" aria-label="对手的红心"></span>
+        <span class="bun-icon" aria-hidden="true"></span>
+        <b id="hud-foe-bun" title="对手的馒头">20</b>
+      </span>
+
+      <span class="duel-mid"><span class="wave-call">第</span> <b id="hud-wave">1</b> <span class="wave-call">波</span> · <b id="hud-next">8s</b></span>
+
+      <span class="duel-side">
+        <span class="duel-tag">你</span>
+        <span class="hud-hearts" id="hud-hearts" aria-label="你的红心"></span>
+      </span>
+    </div>
+
+    <div class="board">
+      <canvas id="battle-canvas"></canvas>
+    </div>
+
+    <!-- 操作区：左「征兵」，右备战席（DOM 卡片，拖拽从这里起手） -->
+    <div class="action">
+      <!-- 「营」牌：纯装饰的小营帐，不接管征兵按钮的点击 -->
+      <span class="camp-sign" aria-hidden="true">营</span>
+      <div class="recruit">
+        <button class="recruit-btn" id="btn-recruit" type="button">征兵</button>
+        <span class="recruit-cost" id="recruit-cost">10 馒头</span>
+      </div>
+      <div class="bench" id="bench" aria-label="备战席"></div>
+    </div>
+
+    <!-- 一行小字：左边「已丢弃 N 张」，右边馒头（铲子改成备战席卡片，不再有独立计数） -->
+    <p class="action-note">
+      <span id="recruit-note"></span>
+      <span class="hud-item hud-item--bun">馒头 <b id="hud-bun">20</b><span class="hud-gain" id="hud-gain"></span></span>
+    </p>
+
+    <!-- 拖影：跟着指针走的那半个字，拖拽时由 drag.js 显示 -->
+    <div class="drag-ghost" id="drag-ghost" aria-hidden="true"></div>
+
+    <!-- 结算面板：你赢了 / 你输了，靠 is-on 显示 -->
+    <div class="panel" id="panel">
+      <p class="panel-title" id="panel-title">你赢了</p>
+      <p class="panel-sub" id="panel-sub"></p>
+      <p class="panel-meta" id="panel-meta"></p>
+      <p class="panel-drop" id="panel-drop"></p>
+      <button class="panel-btn panel-btn--primary" id="btn-retry" type="button">再来一次</button>
+      <button class="panel-btn" id="btn-panel-back" type="button">返回首页</button>
+    </div>
+  </section>
+
+  <!-- 开场「斗」字入场：全屏覆盖层，只在点「开始游戏」后播 1.5 秒（src/intro.js） -->
+  <canvas id="intro-canvas" aria-hidden="true"></canvas>
+
+  <!-- 加载顺序即依赖顺序：数值 → 棋盘地图 → 随机 → 几何 → 状态 → 武将 → 波次 → 战斗 → 技能 → 征兵 → AI → 局外 → 存档 → 离屏资源 → 绘制 → 界面 → 拖拽 → 开场 → 编排 -->
+  <script src="data/balance.js"></script>
+  <script src="data/board_map.js"></script>
+  <script src="src/rng.js"></script>
+  <script src="src/board.js"></script>
+  <script src="src/state.js"></script>
+  <script src="src/hero.js"></script>
+  <script src="src/waves.js"></script>
+  <script src="src/combat.js"></script>
+  <script src="src/skill.js"></script>
+  <script src="src/recruit.js"></script>
+  <script src="src/ai.js"></script>
+  <script src="src/meta.js"></script>
+  <script src="src/save.js"></script>
+  <script src="src/art.js"></script>
+  <script src="src/board-art.js"></script>
+  <script src="src/weapon-art.js"></script>
+  <script src="src/weapon-fx.js"></script>
+  <script src="src/qiang-fx.js"></script>
+  <script src="src/render.js"></script>
+  <script src="src/render-fx.js"></script>
+  <script src="src/bench-art.js"></script>
+  <script src="src/ui.js"></script>
+  <script src="src/drag.js"></script>
+  <script src="src/intro.js"></script>
+  <script src="src/main.js"></script>
+
+</body>
+</html>

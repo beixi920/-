@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>单骑 · 汉字塔防 — AI 对局模拟</title>
+<style>
+  :root { --paper: #f6f1e4; --ink: #2b2b2b; --muted: #7a705f; --line: #d9cfb6; --red: #a8332a; --green: #2f6b46; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px 16px 48px; background: #e9e2d0; color: var(--ink);
+         font: 14px/1.6 "Microsoft YaHei", "PingFang SC", sans-serif; }
+  .wrap { max-width: 900px; margin: 0 auto; background: var(--paper); border: 1px solid var(--line);
+          border-radius: 6px; padding: 22px 26px 30px; box-shadow: 0 2px 10px rgba(0,0,0,.08); }
+  h1 { margin: 0 0 2px; font-size: 24px; letter-spacing: 2px; }
+  h2 { margin: 26px 0 8px; font-size: 16px; border-left: 3px solid var(--red); padding-left: 8px; }
+  .sub { margin: 0 0 16px; color: var(--muted); font-size: 12px; }
+  .progress { padding: 8px 12px; background: #fffaf0; border: 1px solid var(--line); border-radius: 4px;
+              margin-bottom: 6px; font-variant-numeric: tabular-nums; }
+  table { width: 100%; border-collapse: collapse; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  th, td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: right; font-size: 13px; }
+  th:first-child, td:first-child { text-align: left; }
+  thead th { background: #eee6d2; font-weight: 600; }
+  tbody tr:hover { background: #fbf6e9; }
+  .assert { margin-top: 18px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 4px;
+            background: #fffaf0; font-weight: 600; }
+  .pass { color: var(--green); }
+  .fail { color: var(--red); }
+  .note { color: var(--muted); font-size: 12px; margin-top: 8px; font-weight: 400; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>单骑 · 汉字塔防</h1>
+  <p class="sub">AI 对 AI 对局模拟 · 只加载逻辑层（state / combat / waves / skill / recruit / ai / hero / rng / board），不加载渲染与界面</p>
+
+  <div id="progress" class="progress">准备中…</div>
+  <div id="out"></div>
+  <div id="assert" class="assert"></div>
+</div>
+
+<!-- 加载顺序照抄 index.html 的逻辑层部分；hero.js 必须在 ai.js 之前（拼字纯函数）。 -->
+<script src="../data/balance.js"></script>
+<script src="../data/board_map.js"></script>
+<script src="../src/rng.js"></script>
+<script src="../src/board.js"></script>
+<script src="../src/state.js"></script>
+<script src="../src/hero.js"></script>
+<script src="../src/waves.js"></script>
+<script src="../src/combat.js"></script>
+<script src="../src/skill.js"></script>
+<script src="../src/recruit.js"></script>
+<script src="../src/ai.js"></script>
+
+<script>
+/* 单骑 · 汉字塔防 —— 对局模拟
+ * 纯逻辑：本段不碰 DOM，页面输出放在最后那一小段（没有 document 时整段跳过）。
+ * 一局 = 两个独立 state，同一套波次、同一固定步长；两侧都由 Game.ai.decide 代打。
+ * 玩家侧固定用普通档 AI（代表普通玩家水平），对手侧按被测难度档跑。
+ */
+(function (global) {
+  'use strict';
+
+  var Game = global.Game = global.Game || {};
+  var DATA = global.DATA;
+
+  var CONFIG = {
+    runsPerLevel: 200,          // 每档跑几局
+    playerLevel: 'normal',      // 玩家侧固定这一档，三档对比才有共同基准
+    levels: ['easy', 'normal', 'hard'],
+    maxWaves: 40,               // 无限波；sim 跑到第 40 波仍未分胜负就封顶统计
+    chunk: 4                   // 页面分批：每批跑几局，避免卡住浏览器
+  };
+
+  function zeros(n) {
+    var a = [];
+    for (var i = 0; i < n; i++) { a.push(0); }
+    return a;
+  }
+
+  /* ---- 一侧的一帧：顺序与 main.js 的 stepSide 一致 ---- */
+  function stepSide(s, step, balance, board) {
+    if (s.status !== 'playing') { return; }
+    s.elapsed += step;
+    Game.waves.update(s, step, balance, board);
+    Game.combat.update(s, step, balance, board);
+  }
+
+  /* ---- AI 计时：与 main.js 的 aiTick 一致（开局先等一个完整间隔）---- */
+  function aiTick(s, timer, step, level, balance, board) {
+    if (s.status !== 'playing') { return { timer: timer, merged: 0 }; }
+    timer -= step;
+    if (timer > 0) { return { timer: timer, merged: 0 }; }
+    timer += level.intervalSec;
+    var log = Game.ai.decide(s, balance, board, level);
+    return { timer: timer, merged: log.merged };
+  }
+
+  /* ---- 胜负：复刻 main.js 的 checkDuel（只认漏光，不比击杀）---- */
+  function checkDuel(me, foe) {
+    var meDead = me.status === 'lost';
+    var foeDead = foe.status === 'lost';
+    if (!meDead && !foeDead) { return null; }
+    /* 同帧双方都漏光：判对手先没心（玩家赢），与 main.js 一致 */
+    return foeDead ? 'won' : 'lost';
+  }
+
+  /* ---- 漏怪波次：波次公式不改，只在推进前记下"这一帧即将走到终点"的敌人波号 ---- */
+  function pendingLeaks(s, step, board) {
+    var last = board.path(s.side).length - 1;
+    var out = [];
+    for (var i = 0; i < s.enemies.length; i++) {
+      var e = s.enemies[i];
+      if (e.dead || e.leaked || e.stunTimer > 0) { continue; }
+      if (e.progress + e.speed * step >= last) { out.push(e.wave); }
+    }
+    return out;
+  }
+
+  function addLeaks(hist, pending, delta, s, total) {
+    for (var i = 0; i < delta; i++) {
+      var w = pending[i];
+      if (!(w >= 1 && w <= total)) {
+        w = Math.max(1, Math.min(total, s.waveIndex - 1));   // 兜底用当前波号
+      }
+      hist[w] += 1;
+    }
+  }
+
+  /* ---- NaN 哨兵：每秒抽一次关键数值，局末再全量查一次 ---- */
+  function hasNaN(s) {
+    var vals = [s.bun, s.leakPoints, s.elapsed, s.kills, s.leaks, s.recruitCount,
+      s.unlocked.length];
+    for (var i = 0; i < vals.length; i++) {
+      if (!isFinite(vals[i])) { return true; }
+    }
+    for (var u = 0; u < s.units.length; u++) {
+      var unit = s.units[u];
+      if (!isFinite(unit.damage) || !isFinite(unit.cooldown) || !isFinite(unit.intervalSec)) { return true; }
+    }
+    for (var e = 0; e < s.enemies.length; e++) {
+      if (!isFinite(s.enemies[e].hp) || !isFinite(s.enemies[e].progress)) { return true; }
+    }
+    return false;
+  }
+
+  function countHeroes(s) {
+    var gold = 0, purple = 0;
+    for (var i = 0; i < s.units.length; i++) {
+      var u = s.units[i];
+      if (u.type !== 'hero') { continue; }
+      if (u.quality === 'purple') { purple += 1; } else { gold += 1; }
+    }
+    return { gold: gold, purple: purple };
+  }
+
+  /* ---- 跑一局 ---- */
+  function runOne(index, levelKey, balance, board) {
+    var me = Game.state.createInitialState(balance, 'bottom', board);
+    var foe = Game.state.createInitialState(balance, 'top', board);
+
+    // 固定种子序列：同一档第 i 局在三档之间可比，刷新页面结果完全一致。
+    var seed = (1000 + index * 7919) >>> 0 || 1;
+    me.seed = seed;
+    foe.seed = ((seed ^ 0x9E3779B9) >>> 0) || 2;
+
+    var playerLevel = balance.ai.levels[CONFIG.playerLevel] || balance.ai.levels.normal;
+    var foeLevel = balance.ai.levels[levelKey];
+    var step = 1 / balance.loop.stepHz;
+    /* 无限波：跑满 maxWaves 波 + 出怪/行军余量，不再用 240 秒时限。 */
+    var maxSteps = Math.ceil((balance.wave.firstDelaySec
+      + (CONFIG.maxWaves - 1) * balance.wave.intervalSec + 90) / step) + 2;
+    var total = CONFIG.maxWaves;
+
+    var meTimer = playerLevel.intervalSec;
+    var foeTimer = foeLevel.intervalSec;
+    var merged = 0;
+    var hist = zeros(total + 2);
+    var bad = false;
+    var result = null;
+    var capped = false;
+
+    for (var n = 0; n < maxSteps; n++) {
+      var mePend = pendingLeaks(me, step, board);
+      var foePend = pendingLeaks(foe, step, board);
+      var meBefore = me.leaks;
+      var foeBefore = foe.leaks;
+
+      stepSide(me, step, balance, board);
+      stepSide(foe, step, balance, board);
+
+      var a = aiTick(me, meTimer, step, playerLevel, balance, board);
+      var b = aiTick(foe, foeTimer, step, foeLevel, balance, board);
+      meTimer = a.timer;
+      foeTimer = b.timer;
+      merged += a.merged + b.merged;
+
+      addLeaks(hist, mePend, me.leaks - meBefore, me, total);
+      addLeaks(hist, foePend, foe.leaks - foeBefore, foe, total);
+
+      result = checkDuel(me, foe);
+
+      // tickPresentation 无条件执行（CODEBUDDY.md：判负后也要收尾）。
+      Game.waves.tickPresentation(me, step, balance);
+      Game.waves.tickPresentation(foe, step, balance);
+
+      if (n % 60 === 0 && (hasNaN(me) || hasNaN(foe))) { bad = true; }
+      if (result) { break; }
+    }
+
+    if (!result) {
+      /* 40 波封顶仍未漏光：按剩余漏点判（多者胜），只用于 sim 收尾，不是游戏规则。 */
+      capped = true;
+      result = me.leakPoints >= foe.leakPoints ? 'won' : 'lost';
+    }
+    if (hasNaN(me) || hasNaN(foe)) { bad = true; }
+
+    var hMe = countHeroes(me);
+    var hFoe = countHeroes(foe);
+    var heroesMe = hMe.gold + hMe.purple;      // 玩家侧武将数（分桶用玩家侧，胜率也是玩家侧口径）
+    var waveReached = Math.max(1, Math.max(me.waveIndex, foe.waveIndex) - 1);
+    if (waveReached > CONFIG.maxWaves) { waveReached = CONFIG.maxWaves; }
+
+    return {
+      win: result === 'won',
+      wave: waveReached,
+      capped: capped,
+      duration: Math.max(me.elapsed, foe.elapsed),
+      recruits: (me.recruitCount + foe.recruitCount) / 2,   // 每侧平均
+      merges: merged / 2,                                    // 每侧平均
+      gold: (hMe.gold + hFoe.gold) / 2,
+      purple: (hMe.purple + hFoe.purple) / 2,
+      heroesMe: heroesMe,
+      dugMe: me.unlocked.length,       // 玩家侧挖开格数（铲子够不够用）
+      dugFoe: foe.unlocked.length,     // 对手侧（被测难度档）挖开格数
+      leakHist: hist,
+      bad: bad
+    };
+  }
+
+  /* ---- 汇总一档 ---- */
+  function summarize(games, total) {
+    var n = games.length;
+    var sum = { win: 0, duration: 0, wave: 0, capped: 0,
+      recruits: 0, merges: 0, gold: 0, purple: 0, dugMe: 0, dugFoe: 0, bad: 0 };
+    var hist = zeros(total + 2);
+    /* 武将数分桶（玩家侧）：0 / 1 / 2 / 3+，看「有没有武将」是否还等于「赢不赢」 */
+    var bucketN = [0, 0, 0, 0];
+    var bucketWin = [0, 0, 0, 0];
+
+    for (var i = 0; i < n; i++) {
+      var g = games[i];
+      sum.win += g.win ? 1 : 0;
+      sum.duration += g.duration;
+      sum.wave += g.wave;
+      sum.capped += g.capped ? 1 : 0;
+      sum.recruits += g.recruits;
+      sum.merges += g.merges;
+      sum.gold += g.gold;
+      sum.purple += g.purple;
+      sum.dugMe += g.dugMe;
+      sum.dugFoe += g.dugFoe;
+      sum.bad += g.bad ? 1 : 0;
+      var bi = g.heroesMe > 3 ? 3 : g.heroesMe;
+      bucketN[bi] += 1;
+      if (g.win) { bucketWin[bi] += 1; }
+      for (var w = 1; w <= total; w++) { hist[w] += g.leakHist[w]; }
+    }
+
+    var d = n || 1;
+    var avgHist = zeros(total + 2);
+    for (var k = 1; k <= total; k++) { avgHist[k] = hist[k] / d; }
+
+    return {
+      runs: n,
+      winRate: sum.win / d,
+      avgDuration: sum.duration / d,
+      avgWave: sum.wave / d,
+      capped: sum.capped,
+      avgRecruits: sum.recruits / d,
+      avgMerges: sum.merges / d,
+      avgGold: sum.gold / d,
+      avgPurple: sum.purple / d,
+      avgHeroes: (sum.gold + sum.purple) / d,
+      avgDugMe: sum.dugMe / d,
+      avgDugFoe: sum.dugFoe / d,
+      heroBuckets: [[bucketN[0], bucketWin[0]], [bucketN[1], bucketWin[1]],
+        [bucketN[2], bucketWin[2]], [bucketN[3], bucketWin[3]]],
+      leakHist: avgHist,          // 每局平均漏怪数（两侧合计）
+      bad: sum.bad
+    };
+  }
+
+  function runLevel(levelKey, count, balance, board) {
+    var games = [];
+    for (var i = 0; i < count; i++) { games.push(runOne(i, levelKey, balance, board)); }
+    return summarize(games, CONFIG.maxWaves);
+  }
+
+  function runAll(count, balance, board) {
+    var out = {};
+    for (var i = 0; i < CONFIG.levels.length; i++) {
+      var key = CONFIG.levels[i];
+      out[key] = runLevel(key, count, balance, board);
+    }
+    return out;
+  }
+
+  /* ---- 分批跑：页面用，node 里直接调 runAll 就行 ---- */
+  function makeRunner(count, balance, board) {
+    var jobs = [];
+    var buckets = { easy: [], normal: [], hard: [] };
+    for (var l = 0; l < CONFIG.levels.length; l++) {
+      for (var i = 0; i < count; i++) { jobs.push({ level: CONFIG.levels[l], index: i }); }
+      buckets[CONFIG.levels[l]] = [];
+    }
+
+    var cursor = 0;
+    return {
+      total: jobs.length,
+      done: function () { return cursor; },
+      step: function (n) {
+        for (var k = 0; k < n && cursor < jobs.length; k++) {
+          var j = jobs[cursor++];
+          buckets[j.level].push(runOne(j.index, j.level, balance, board));
+        }
+        return cursor >= jobs.length;
+      },
+      results: function () {
+        var out = {};
+        for (var m = 0; m < CONFIG.levels.length; m++) {
+          var key = CONFIG.levels[m];
+          out[key] = summarize(buckets[key], CONFIG.maxWaves);
+        }
+        return out;
+      }
+    };
+  }
+
+  Game.sim = {
+    CONFIG: CONFIG,
+    runOne: runOne,
+    runLevel: runLevel,
+    runAll: runAll,
+    makeRunner: makeRunner,
+    summarize: summarize
+  };
+
+  /* ============ 以下才碰 DOM：没有 document 时（node 复跑）整段跳过 ============ */
+  if (!global.document || !global.document.getElementById) { return; }
+
+  // 某些静态预览只映射本文件一个 HTML，拿不到 ../src/*.js。
+  // 这时不抛红字，直接按项目的零环境约定给出运行方式。
+  if (!DATA || !DATA.balance || !Game.state || !Game.combat || !Game.waves ||
+      !Game.ai || !Game.hero || !Game.board) {
+    global.document.getElementById('progress').textContent =
+      '逻辑层没加载进来：请双击本地 test/sim.html（file://）运行，不需要任何服务器。';
+    return;
+  }
+
+  var balance = DATA.balance;
+  var board = Game.board;
+  var total = CONFIG.maxWaves;
+  var elProgress = global.document.getElementById('progress');
+  var elOut = global.document.getElementById('out');
+  var elAssert = global.document.getElementById('assert');
+
+  function pct(x) { return (x * 100).toFixed(1) + '%'; }
+  function num(x) { return x.toFixed(2); }
+
+  function table1(res) {
+    var rows = '';
+    for (var i = 0; i < CONFIG.levels.length; i++) {
+      var key = CONFIG.levels[i];
+      var r = res[key];
+      rows += '<tr><td>' + balance.ai.levels[key].label + '（' + key + '）</td>'
+        + '<td>' + r.runs + '</td><td>' + pct(r.winRate) + '</td>'
+        + '<td>' + num(r.avgWave) + '</td><td>' + r.capped + '</td>'
+        + '<td>' + num(r.avgDuration) + '</td><td>' + num(r.avgRecruits) + '</td>'
+        + '<td>' + num(r.avgMerges) + '</td><td>' + num(r.avgGold) + '</td>'
+        + '<td>' + num(r.avgPurple) + '</td><td>' + num(r.avgHeroes) + '</td>'
+        + '<td>' + num(r.avgDugFoe) + ' / ' + num(r.avgDugMe) + '</td></tr>';
+    }
+    return '<h2>对局总表</h2><table><thead><tr>'
+      + '<th>难度（对手侧）</th><th>局数</th><th>玩家胜率</th><th>平均波数</th><th>40 波封顶</th>'
+      + '<th>平均局长(秒)</th><th>平均征兵</th><th>平均合成</th>'
+      + '<th>平均金将</th><th>平均紫将</th><th>平均武将</th><th>平均挖格(敌/我)</th>'
+      + '</tr></thead><tbody>' + rows + '</tbody></table>'
+      + '<p class="note">无限波：跑到一方漏光或第 ' + CONFIG.maxWaves + ' 波封顶。'
+      + '玩家侧固定由「普通」档 AI 代打；征兵 / 合成 / 武将数 / 挖格都是「每局每侧平均」。'
+      + '挖格列 = 对手侧（被测难度档）/ 玩家侧，用来判断铲子够不够用（对比各档 digCap）。'
+      + '胜率 = 玩家侧获胜局数 ÷ 局数；封顶局按剩余漏点判，仅用于 sim 收尾。</p>';
+  }
+
+  function table2(res) {
+    var rows = '';
+    /* 只展示前 20 波：无限波后面每波漏怪很少，前 20 波足够看三档差异。 */
+    for (var w = 1; w <= Math.min(20, total); w++) {
+      rows += '<tr><td>第 ' + w + ' 波</td>'
+        + '<td>' + num(res.easy.leakHist[w]) + '</td>'
+        + '<td>' + num(res.normal.leakHist[w]) + '</td>'
+        + '<td>' + num(res.hard.leakHist[w]) + '</td></tr>';
+    }
+    return '<h2>漏怪波次分布</h2><table><thead><tr>'
+      + '<th>波次</th><th>简单</th><th>普通</th><th>困难</th>'
+      + '</tr></thead><tbody>' + rows + '</tbody></table>'
+      + '<p class="note">每局平均漏怪只数（两侧合计）。峰值越靠前，说明该档越早被打穿。</p>';
+  }
+
+  function table3(res) {
+    var labels = ['0 个', '1 个', '2 个', '3+ 个'];
+    var rows = '';
+    for (var b = 0; b < 4; b++) {
+      rows += '<tr><td>武将 ' + labels[b] + '</td>';
+      for (var i = 0; i < CONFIG.levels.length; i++) {
+        var cell = res[CONFIG.levels[i]].heroBuckets[b];
+        var cnt = cell[0], win = cell[1];
+        rows += '<td>' + (cnt > 0 ? pct(win / cnt) + '（' + cnt + ' 局）' : '—') + '</td>';
+      }
+      rows += '</tr>';
+    }
+    return '<h2>按武将数分桶胜率（玩家侧）</h2><table><thead><tr>'
+      + '<th>该局武将数</th><th>简单</th><th>普通</th><th>困难</th>'
+      + '</tr></thead><tbody>' + rows + '</tbody></table>'
+      + '<p class="note">分桶按「玩家侧本局拥有过的武将数」统计，括号里是该桶局数。'
+      + '目标：0 武将 25–40%、1–2 武将 55–80%，不允许 0 武将 0% 或 2 武将 100%。</p>';
+  }
+
+  function checkNaN(res) {
+    var keys = ['winRate', 'avgWave', 'avgDuration', 'avgRecruits', 'avgMerges',
+      'avgGold', 'avgPurple', 'avgHeroes', 'avgDugMe', 'avgDugFoe'];
+    var bad = 0;
+    for (var i = 0; i < CONFIG.levels.length; i++) {
+      var r = res[CONFIG.levels[i]];
+      bad += r.bad;
+      for (var k = 0; k < keys.length; k++) {
+        if (!isFinite(r[keys[k]])) { bad += 1; }
+      }
+      for (var b = 0; b < r.heroBuckets.length; b++) {
+        if (!isFinite(r.heroBuckets[b][0]) || !isFinite(r.heroBuckets[b][1])) { bad += 1; }
+      }
+      for (var w = 1; w <= total; w++) {
+        if (!isFinite(r.leakHist[w])) { bad += 1; }
+      }
+    }
+    return bad;
+  }
+
+  function render(res) {
+    elOut.innerHTML = table1(res) + table2(res) + table3(res);
+    var bad = checkNaN(res);
+    elAssert.innerHTML = bad === 0
+      ? '<span class="pass">断言 · 无 NaN：PASS</span>'
+        + '<div class="note">共 ' + (CONFIG.runsPerLevel * CONFIG.levels.length) + ' 局（每档 '
+        + CONFIG.runsPerLevel + ' 局）；所有统计值、单位属性、敌人属性均为有限数。</div>'
+      : '<span class="fail">断言 · 无 NaN：FAIL（' + bad + ' 处）</span>';
+  }
+
+  var runner = Game.sim.makeRunner(CONFIG.runsPerLevel, balance, board);
+
+  function tick() {
+    var finished = runner.step(CONFIG.chunk);
+    elProgress.textContent = '模拟中… ' + runner.done() + ' / ' + runner.total + ' 局';
+    if (!finished) {
+      global.setTimeout(tick, 0);
+    } else {
+      elProgress.textContent = '完成：' + runner.total + ' 局（每档 ' + CONFIG.runsPerLevel + ' 局，种子固定可复现）';
+      render(runner.results());
+    }
+  }
+
+  global.setTimeout(tick, 0);
+})(globalThis);
+</script>
+</body>
+</html>

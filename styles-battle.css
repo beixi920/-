@@ -1,0 +1,574 @@
+/* 单骑 · 汉字塔防 —— 战斗页样式
+ * 从 styles.css 拆出来：战斗页的东西（双半场 HUD / 操作区 / 结算面板）都在这儿。
+ * 加载顺序：styles.css → styles-battle.css，后者可以覆盖前者。
+ */
+
+/* ===== 战斗页 =====
+ * 画布是整块 8×10：44px 方格 → 352×440，CSS width:100% + height:auto 等比显示。
+ * 窗口比 375×667 小的时候，main.js 的 fitScene() 给整页加 zoom 等比缩小，
+ * 不会出现滚动条，也不会把画布拉变形。
+ */
+#scene-battle {
+  padding: 0;
+}
+
+/* 顶栏：一行放下「返回 / 敌对心 / 波次 / 我放心」 */
+.duel-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 38px;
+  padding: 0 10px;
+}
+
+/* 返回按钮：功能性按钮，0°，不做任何旋转。 */
+.back {
+  height: 24px;
+  padding: 0 9px;
+
+  font-family: inherit;
+  font-size: 12px;
+  letter-spacing: 1px;
+
+  color: var(--ink);
+  background-color: transparent;
+  border: 1px solid rgba(28, 25, 20, 0.45);
+  border-radius: 3px;
+
+  cursor: pointer;
+  transform: none;
+}
+
+.back:hover {
+  background-color: rgba(28, 25, 20, 0.05);
+}
+
+.back:active {
+  background-color: rgba(28, 25, 20, 0.1);
+}
+
+/* ===== HUD：两侧红心 + 中间波次 ===== */
+.duel-side {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+.duel-tag {
+  font-size: 10px;
+  color: rgba(28, 25, 20, 0.45);
+}
+
+/* 对手馒头：跟在红心后面，和「馒」字之间留一点空 */
+#hud-foe-bun {
+  margin-left: 2px;
+  font-size: 11px;
+}
+
+.duel-mid {
+  flex: 1;
+  text-align: center;
+  font-size: 11px;
+  color: rgba(28, 25, 20, 0.7);
+  white-space: nowrap;
+}
+
+.duel-bar b,
+.action-note b {
+  font-weight: 700;
+  color: var(--ink);
+  /* 等宽数字：数值变化时宽度不跳。 */
+  font-variant-numeric: tabular-nums;
+}
+
+/* 红心一排：亮的是还活着的，碎掉的变淡 */
+.hud-hearts {
+  display: inline-flex;
+  gap: 1px;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.hud-heart {
+  color: var(--cinnabar);
+  transition: color 0.2s ease, opacity 0.2s ease;
+}
+
+.hud-heart.is-lost {
+  color: rgba(178, 58, 43, 0.16);
+}
+
+/* 馒头这一项右侧预留给「+8」的位置：提示出现/消失都不会把别的项推来推去 */
+.hud-item--bun {
+  position: relative;
+  padding-right: 24px;
+  white-space: nowrap;
+  color: rgba(28, 25, 20, 0.7);
+}
+
+/* 波次奖励提示：金色小字，透明度由 ui.js 每帧按剩余时间写入（先淡入、保持、再淡出） */
+.hud-gain {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+
+  font-size: 10px;
+  font-weight: 700;
+  color: #B08A2E;      /* 金色：和朱砂的漏怪「+5」区分开 */
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+}
+
+/* ===== 操作区：征兵 + 备战席 ===== */
+.action {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 14px 0;
+  flex: 0 0 auto;
+}
+
+.recruit {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 84px;
+}
+
+.recruit-btn {
+  width: 84px;
+  height: 38px;
+
+  font-family: inherit;
+  font-size: 14px;
+  letter-spacing: 3px;
+  text-indent: 3px;
+
+  color: var(--cream);
+  background-color: var(--cinnabar);
+  border: 2px solid var(--ink);
+  border-radius: 3px;
+
+  cursor: pointer;
+  transform: none;
+}
+
+.recruit-btn:active {
+  transform: translateY(1px);
+}
+
+/* 馒头不够：置灰且不可点，下面的小字会显示还差多少 */
+.recruit-btn:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.recruit-cost {
+  font-size: 10px;
+  color: rgba(28, 25, 20, 0.55);
+  font-variant-numeric: tabular-nums;
+}
+
+.bench {
+  flex: 1;
+  display: flex;
+  gap: 5px;
+  min-width: 0;
+}
+
+/* 空格与卡共用尺寸；纸签直角细墨边，不用圆角卡片（ART.md 3.7） */
+.bench-slot,
+.bench-card {
+  flex: 1 1 0;
+  height: 48px;
+  border-radius: 0;
+}
+
+.bench-slot {
+  border: 1px dashed rgba(28, 25, 20, 0.3);
+  background-color: rgba(243, 235, 217, 0.45);
+}
+
+.bench-card {
+  display: grid;
+  place-items: center;
+
+  background-color: #FBF6E8;
+  border: 1px solid rgba(28, 25, 20, 0.32);
+  color: var(--ink);
+
+  font-size: 20px;
+  user-select: none;
+  cursor: pointer;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+/* 金色武将单字：金边 + 米金底 */
+.bench-card.is-hero {
+  color: #8A6414;
+  background-color: #FBF3DC;
+  border: 2px solid #C49A2A;
+}
+
+/* 选中：描边加粗，明天的拖拽就从这里开始 */
+.bench-card.is-selected {
+  border-width: 3px;
+  border-color: var(--cinnabar);
+  box-shadow: 0 0 0 2px rgba(178, 58, 43, 0.18);
+}
+
+/* 拖拽时不让浏览器把手势当成滚动 */
+.bench-card {
+  touch-action: none;
+}
+
+/* 卡不能上场时抖一下，告诉玩家"卡还在" */
+@keyframes bench-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-3px); }
+  75% { transform: translateX(3px); }
+}
+
+.bench-card.is-shake {
+  animation: bench-shake 0.28s ease-in-out;
+  border-color: var(--cinnabar);
+}
+
+/* ===== 拖影：跟着指针走的半透明字 ===== */
+.drag-ghost {
+  position: absolute;
+  display: none;
+
+  /* 用 translate 居中，left/top 由 JS 设成指针位置 */
+  transform: translate(-50%, -50%);
+
+  font-family: inherit;
+  font-size: 24px;
+  color: var(--ink);
+  opacity: 0.55;
+
+  pointer-events: none;
+  z-index: 5;
+}
+
+.drag-ghost.is-on {
+  display: block;
+}
+
+/* 铲子卡的拖影：图标 canvas 自己撑开尺寸，父级字号不再参与 */
+.drag-ghost canvas {
+  display: block;
+  pointer-events: none;
+}
+
+/* 一行小字：提示（左，占剩余宽度）/ 馒头 */
+.action-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 18px;
+  margin: 2px 0 0;
+  padding: 0 14px;
+  font-size: 11px;
+  color: var(--cinnabar);
+  flex: 0 0 auto;
+}
+
+/* 提示文字可能很长（「已丢弃 5 张」），让它自己缩，不把右边两项挤出去 */
+#recruit-note {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 铲子改成备战席卡片（加餐 E）：卡面不再写字，图标由 bench-art.js 用 Canvas 画 */
+.bench-card.is-shovel {
+  padding: 0;
+  background-color: #F4EEE0;
+}
+
+.bench-card.is-shovel canvas {
+  display: block;
+  pointer-events: none;
+}
+
+/* 开场入场覆盖层：全屏、盖住 HUD，尺寸和 DPR 由 intro.js 按视口重算 */
+#intro-canvas {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  display: none;
+  z-index: 60;
+  cursor: pointer;
+  touch-action: none;
+}
+
+#intro-canvas.is-on {
+  display: block;
+}
+
+/* ===== 结算面板 = 纸签（ART.md 3.7）=====
+ * 纸色不透明底 + 1px 细墨边 + 轻微不规则边，不用圆角卡片、渐变和阴影。 */
+.panel {
+  position: absolute;
+  inset: 14% 7%;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+
+  background-color: var(--paper);
+  border: 1px solid rgba(28, 25, 20, 0.6);
+  clip-path: polygon(0.6% 1%, 99.4% 0%, 100% 98.8%, 0.4% 100%);
+}
+
+.panel.is-on {
+  display: flex;
+}
+
+.panel-title {
+  margin: 0;
+  font-size: 34px;
+  letter-spacing: 8px;
+  text-indent: 8px;
+  color: var(--ink);
+}
+
+.panel-sub {
+  margin: 0 0 6px;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  color: rgba(28, 25, 20, 0.6);
+}
+
+/* 局外结算：金币 / 星 / 升段掉段，和战绩分两行，别挤成一坨。 */
+.panel-meta {
+  margin: 0 0 10px;
+  min-height: 1.4em;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--cinnabar);
+}
+
+/* 本局掉落武器：品质颜色由数值表给，写进 span.style.color。 */
+.panel-drop {
+  margin: 0 0 10px;
+  min-height: 1.4em;
+  font-size: 13px;
+  color: rgba(28, 25, 20, 0.6);
+}
+
+.panel-btn {
+  width: 190px;
+  height: 46px;
+
+  font-family: inherit;
+  font-size: 16px;
+  letter-spacing: 5px;
+  text-indent: 5px;
+
+  color: var(--ink);
+  background-color: transparent;
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  cursor: pointer;
+
+  /* 面板里的按钮成排出现，一律 0°。 */
+  transform: none;
+}
+
+.panel-btn--primary {
+  color: var(--cream);
+  background-color: var(--cinnabar);
+}
+
+/* 棋盘容器：紧接顶栏，不占额外外边距——纵向空间刚好够两块半场。 */
+.board {
+  flex: 0 0 auto;
+  width: 100%;
+  margin: 0;
+}
+
+canvas {
+  display: block;
+
+  /* CSS 只决定显示多大；画布内部尺寸由 JS 按逻辑尺寸设置。 */
+  width: 100%;
+  height: auto;
+
+  /* 触屏上把拖动交给自己处理，否则手指一拖页面就滚。 */
+  touch-action: none;
+
+  cursor: default;
+}
+
+/* ===== Day 25 画风补图：顶栏 / 底栏装饰（纯 CSS 几何，不改交互）===== */
+
+/* 顶栏：灰绿 HUD 条，给暂停牌与道具图标腾出 6px；页面高度余量够用 */
+.duel-bar {
+  position: relative;
+  height: 44px;
+  gap: 6px;
+  padding: 0 8px;
+  background-color: rgba(143, 160, 140, 0.28);
+  border-bottom: 1px solid rgba(28, 25, 20, 0.22);
+}
+
+.hud-deco {
+  pointer-events: none;
+  flex: 0 0 auto;
+}
+
+/* 暂停牌：米白小牌 + 两根墨竖条 */
+.hud-deco--pause {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 22px;
+  height: 22px;
+  background-color: #FBF6E8;
+  border: 1px solid rgba(28, 25, 20, 0.55);
+  border-radius: 3px;
+}
+
+.hud-deco--pause i {
+  display: block;
+  width: 3px;
+  height: 9px;
+  background-color: #1C1914;
+}
+
+/* 馒头图标：白色小圆 + 底部一道浅褐弧，纯几何不用图片 */
+.bun-icon {
+  position: relative;
+  display: inline-block;
+  width: 13px;
+  height: 12px;
+  margin-right: 1px;
+  background-color: #FBF6E8;
+  border: 1px solid rgba(28, 25, 20, 0.35);
+  border-radius: 50% 50% 45% 45%;
+}
+
+.bun-icon::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  bottom: 2px;
+  height: 3px;
+  border-bottom: 1px solid rgba(120, 100, 70, 0.45);
+  border-radius: 50%;
+}
+
+/* 「第 N 波」书法感：楷体大字，数字等宽不跳 */
+.duel-mid {
+  font-size: 10px;
+  letter-spacing: 0;
+}
+
+.wave-call {
+  font-family: "KaiTi", "STKaiti", "SimSun", serif;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1C1914;
+  letter-spacing: 1px;
+}
+
+.duel-mid b { font-size: 12px; }
+
+/* 底部「营」牌：朱砂三角帐篷顶 + 墨底纸色字 */
+.camp-sign {
+  position: relative;
+  flex: 0 0 26px;
+  align-self: stretch;
+  min-height: 48px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 5px;
+  font-family: "KaiTi", "STKaiti", "SimSun", serif;
+  font-size: 13px;
+  color: #F3EBD9;
+  background-color: #3B362C;
+  border: 1px solid #1C1914;
+  pointer-events: none;
+}
+
+.camp-sign::before {
+  content: '';
+  position: absolute;
+  left: -3px;
+  right: -3px;
+  top: -9px;
+  height: 10px;
+  background-color: #B23A2B;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+
+/* 征兵：暗红大按钮 + 馒头小图标（数字仍由 recruit-cost 显示） */
+.recruit-btn {
+  height: 40px;
+  background-color: #9E3B2F;
+  border: 2px solid #1C1914;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 2px rgba(243, 235, 217, 0.18);
+  font-family: "KaiTi", "STKaiti", "SimSun", serif;
+  font-size: 16px;
+}
+
+.recruit-cost::before {
+  content: '';
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 3px;
+  vertical-align: -1px;
+  background-color: #FBF6E8;
+  border: 1px solid rgba(28, 25, 20, 0.4);
+  border-radius: 50% 50% 45% 45%;
+}
+
+/* 5 个卡牌框：纸签实线细墨边 + 米白底，底部压一道极淡朱砂 */
+.bench-slot {
+  border: 1px solid rgba(28, 25, 20, 0.38);
+  background-color: rgba(251, 246, 232, 0.7);
+  box-shadow: inset 0 -3px 0 rgba(178, 58, 43, 0.10);
+}
+
+.bench-card {
+  border: 1px solid rgba(28, 25, 20, 0.5);
+  box-shadow: inset 0 -3px 0 rgba(178, 58, 43, 0.18);
+}
+
+/* 铁锹图标改成卡片后，这一组伪元素样式随之删除（加餐 E），卡面见 src/bench-art.js */
+
+/* 顶栏加了装饰后：功能按钮与两侧信息不许被压换行，中间的波次自己让位 */
+.back {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 0 6px;
+  font-size: 11px;
+}
+
+.duel-side { flex: 0 0 auto; }
+.duel-mid { min-width: 0; }
+
+/* 敌方细血条：加一圈墨色底衬，小窗口缩放下也看得见 */
+
+/* 窄屏适配：只缩标题和按钮，纸面本身保持 375×667（上限 100%）。 */

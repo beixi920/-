@@ -1,0 +1,353 @@
+/* 单骑 · 汉字塔防 —— 全局样式
+ * 配色变量集中在 :root，改一处全站生效。
+ */
+
+:root {
+  /* ART.md 3.1 色板：纸 60% / 墨 25% / 淡墨 5% / 朱砂 6% / 金 3% / 紫 1% / 青 1% */
+  --ink-bg: #2B2620;    /* 深墨：页面背景 */
+  --paper: #F3EBD9;     /* 宣纸：场景纸面 */
+  --paper-dark: #E4D6BC;/* 纸暗部：分隔、阴影 */
+  --ink: #1C1914;       /* 墨色：文字、边框 */
+  --light-ink: #4B453B; /* 淡墨：次级文字 */
+  --cinnabar: #B23A2B;  /* 朱砂：主按钮、提示 */
+  --cinnabar-light: #D4674F; /* 朱砂亮：受击闪 */
+  --cream: #F7F0DF;     /* 米白：主按钮文字 */
+  --gold: #C9A227;      /* 金：Lv5 / 金品质 */
+  --purple: #8E6BB8;    /* 紫：紫品质 */
+  --teal: #4A6F63;      /* 青：绿格 */
+}
+
+* {
+  /* 宽高包含边框与内边距，尺寸计算不会越算越大。 */
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--ink-bg);
+  font-family: "KaiTi", "STKaiti", "Kaiti SC", "Songti SC", "SimSun", "Noto Serif SC", serif;
+  color: var(--ink);
+
+  /* 拖拽时不允许选中文字、不允许页面被拉动。 */
+  user-select: none;
+  -webkit-user-select: none;
+  overscroll-behavior: none;
+
+  /* flex + 子元素 margin:auto：场景永远居中，窗口变小时不裁掉顶部。 */
+  display: flex;
+  min-height: 100vh;
+
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ===== 场景：同一时间只显示一个 ===== */
+.scene {
+  /* 默认隐藏。display:none 的元素不占位，所以另一个场景会自然居中。 */
+  display: none;
+
+  position: relative;
+  margin: auto;
+  width: 375px;
+  height: 667px;
+  max-width: 100%;
+
+  background-color: var(--paper);
+  border-radius: 2px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.28);
+  outline: 1px solid rgba(28, 25, 20, 0.08);
+  outline-offset: -1px;
+}
+
+/* JS 给当前场景加上 is-active，它就显示出来。 */
+.scene.is-active {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* ===== 开始页 ===== */
+#scene-menu {
+  /* 左右留 0：40px 标题 + 4px 字距需要接近满宽的 375px。 */
+  padding: 56px 0 0;
+}
+
+.title {
+  width: 100%;
+  margin: 0;
+  font-size: 40px;
+  font-weight: 400;
+  letter-spacing: 4px;
+
+  /* 抵消末字右侧多出的 4px 字距，视觉才真居中。 */
+  text-indent: 4px;
+
+  color: var(--ink);
+  text-align: center;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+/* 主按钮：孤立的印章类按钮，允许 -1.5° 倾斜（UI 排版规则）。 */
+.seal {
+  margin-top: 56px;
+  height: 64px;
+  padding: 0 30px;
+  min-width: 208px;
+
+  font-family: inherit;
+  font-size: 24px;
+  letter-spacing: 6px;
+  text-indent: 6px;
+
+  color: var(--cream);
+  background-color: var(--cinnabar);
+  border: 2px solid var(--ink);
+  border-radius: 3px;
+
+  transform: rotate(-1.5deg);
+  /* 印章内框：一圈细纸色阴文，像盖出来的朱砂方章（ART.md 3.4） */
+  box-shadow: inset 0 0 0 2px rgba(243, 235, 217, 0.3),
+    0 4px 0 rgba(28, 25, 20, 0.35), 0 10px 18px -8px rgba(0, 0, 0, 0.45);
+
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+/* 悬停/按下也要带上角度，否则鼠标一碰按钮会「回正」，很突兀。 */
+.seal:hover {
+  transform: rotate(-1.5deg) translateY(-1px);
+}
+
+.seal:active {
+  transform: rotate(-1.5deg) translateY(2px);
+  box-shadow: inset 0 0 0 2px rgba(243, 235, 217, 0.3),
+    0 2px 0 rgba(28, 25, 20, 0.4), 0 4px 8px -6px rgba(0, 0, 0, 0.5);
+}
+
+.seal:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 4px;
+}
+
+/* 提示文字：默认透明但仍占位，出现时不会把按钮顶上去。 */
+.result {
+  margin: 28px 0 0;
+  min-height: 1.6em;
+  font-size: 16px;
+  letter-spacing: 0.08em;
+  color: var(--cinnabar);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.result.is-on {
+  opacity: 1;
+}
+
+/* ===== 难度三档 =====
+ * 成排的功能性按钮，按 UI 排版规则一律 0°，同一组角度一致。
+ */
+.difficulty {
+  display: flex;
+  gap: 8px;
+  margin-top: 24px;
+}
+
+.diff-btn {
+  height: 30px;
+  padding: 0 14px;
+
+  font-family: inherit;
+  font-size: 12px;
+  letter-spacing: 2px;
+  text-indent: 2px;
+
+  color: rgba(28, 25, 20, 0.66);
+  background-color: rgba(243, 235, 217, 0.55);
+  border: 1px solid rgba(28, 25, 20, 0.5);
+  border-radius: 0;
+
+  cursor: pointer;
+  transform: none;
+}
+
+.diff-btn:hover {
+  background-color: rgba(28, 25, 20, 0.05);
+}
+
+/* 当前档位：朱砂底 + 米白字，和主按钮同一套语言 */
+.diff-btn.is-on {
+  color: var(--cream);
+  background-color: var(--cinnabar);
+  border-color: var(--ink);
+}
+
+.diff-btn:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+}
+
+/* ===== 局外：金币 / 军衔 / 武器库入口 ===== */
+.meta-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  margin-top: 22px;
+
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  color: rgba(28, 25, 20, 0.78);
+}
+
+.meta-gold b {
+  font-weight: 600;
+  color: var(--cinnabar);
+}
+
+.meta-rank b {
+  font-weight: 600;
+}
+
+#menu-stars {
+  color: var(--cinnabar);
+  letter-spacing: 2px;
+}
+
+/* 武器库是功能性按钮：按 UI 排版规则一律 0°。 */
+.menu-entry {
+  margin-top: 14px;
+  height: 36px;
+  padding: 0 20px;
+
+  font-family: inherit;
+  font-size: 13px;
+  letter-spacing: 2px;
+  text-indent: 2px;
+
+  color: var(--light-ink);
+  background-color: rgba(243, 235, 217, 0.55);
+  border: 1px solid rgba(28, 25, 20, 0.45);
+  border-radius: 0;
+
+  transform: none;
+}
+
+.menu-entry:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+/* ===== 武器库：简版列表，不做美术；成排功能按钮一律 0° ===== */
+.armory {
+  display: none;
+  width: 100%;
+  margin-top: 18px;
+  padding: 10px 14px 14px;
+  background-color: var(--cream);
+  border: 1px solid rgba(28, 25, 20, 0.5);
+  /* 纸签：细墨边 + 轻微不规则边，不要圆角卡片和渐变（ART.md 3.7） */
+  clip-path: polygon(0.5% 1%, 99.5% 0%, 100% 98.8%, 0.4% 100%);
+  text-align: left;
+}
+
+.armory.is-on {
+  display: block;
+}
+
+.armory-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.armory-title {
+  font-size: 15px;
+  letter-spacing: 2px;
+}
+
+.armory-select {
+  flex: 1;
+  height: 26px;
+  font-family: inherit;
+  font-size: 12px;
+  background-color: var(--paper);
+  border: 1px solid rgba(28, 25, 20, 0.35);
+  border-radius: 0;
+  transform: none;
+}
+
+.armory-close,
+.armory-row button {
+  height: 26px;
+  padding: 0 10px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--ink);
+  background-color: var(--paper);
+  border: 1px solid rgba(28, 25, 20, 0.45);
+  border-radius: 0;
+  cursor: pointer;
+  transform: none;
+}
+
+.armory-list {
+  max-height: 200px;
+  overflow-y: auto;
+  margin-bottom: 10px;
+}
+
+.armory-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 2px;
+  border-bottom: 1px solid rgba(28, 25, 20, 0.1);
+  font-size: 12px;
+}
+
+.armory-name {
+  flex: 1;
+  font-weight: 600;
+}
+
+.armory-state {
+  color: rgba(28, 25, 20, 0.55);
+}
+
+.armory-empty {
+  padding: 10px 2px;
+  font-size: 12px;
+  color: rgba(28, 25, 20, 0.55);
+}
+
+#btn-wipe {
+  margin-top: 0;
+  height: 30px;
+  font-size: 12px;
+}
+
+@media (max-width: 420px) {
+  #scene-menu {
+    padding-top: 40px;
+  }
+
+  .title {
+    font-size: 32px;
+    letter-spacing: 2px;
+    text-indent: 2px;
+  }
+
+  .seal {
+    margin-top: 36px;
+    height: 56px;
+    font-size: 20px;
+    min-width: 180px;
+  }
+}

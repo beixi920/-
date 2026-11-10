@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>单骑 · 汉字塔防 · 新棋盘预览</title>
+<style>
+  :root{
+    --ink:#1C1914; --paper:#F3EBD9; --cinnabar:#B23A2B;
+    --p:#CFE0D8; --d:#5C7B66; --w:#FBF6E8; --r:#B23A2B; --h:#F3EBD9;
+  }
+  html,body{margin:0;padding:0;background:#2B2620;color:var(--paper);
+    font-family:"KaiTi","STKaiti","Kaiti SC","SimSun",serif}
+  .head{padding:14px 20px 0}
+  h1{margin:0;font-size:22px;letter-spacing:.12em;font-weight:400}
+  .sub{margin:4px 0 0;font-size:12px;color:#B9AE97;letter-spacing:.08em}
+  .wrap{display:flex;gap:18px;align-items:flex-start;padding:14px 20px 20px;flex-wrap:wrap}
+  canvas{display:block;background:var(--paper);border:2px solid var(--ink)}
+  aside{min-width:250px;max-width:300px;padding:12px 14px;border:1px solid rgba(243,235,217,.35);
+    background:rgba(243,235,217,.06);font-size:13px;line-height:1.7}
+  .cap{margin:0 0 6px;font-size:15px;letter-spacing:.14em;color:var(--paper)}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  td{padding:2px 4px;border-bottom:1px solid rgba(243,235,217,.12)}
+  td.n{text-align:right;font-family:serif}
+  td.e{text-align:right;color:#B9AE97;font-size:12px}
+  i.sw{display:inline-block;width:11px;height:11px;margin-right:6px;border:1px solid rgba(28,25,20,.4);vertical-align:-1px}
+  .total{margin-top:8px;color:#B9AE97}
+  .diff{margin-top:8px;padding:6px 8px;border-left:3px solid var(--cinnabar);
+    color:#E8C9BE;font-size:12px;line-height:1.5}
+  .paths{margin:10px 0 0;padding-top:8px;border-top:1px dashed rgba(243,235,217,.25);
+    color:#B9AE97;font-size:12px;line-height:1.8}
+  .ok,.bad{margin:5px 0;font-size:12px;line-height:1.5}
+  .ok{color:#A9CDB4}
+  .bad{color:#E8A79A}
+  .ok span,.bad span{color:#B9AE97;font-size:11px;word-break:break-all}
+  .ok-note{margin-top:8px;color:#A9CDB4;font-size:12px}
+  .note{padding:0 20px 18px;font-size:12px;color:#B9AE97;line-height:1.7}
+  .fallback{display:none;padding:18px 20px;color:#E8C9BE;font-size:14px}
+</style>
+</head>
+<body data-check="LOADING">
+<div class="head">
+  <h1>单骑 · 汉字塔防 · 新棋盘预览</h1>
+  <p class="sub">8 列 × 10 行 · 上半场行 0–4 / 下半场行 5–9 · 每格中央标「列,行」</p>
+</div>
+<div class="fallback" id="fallback">未读到 data/board_map.js，请用 file:// 双击本页打开（同目录结构：test/ 与 data/ 平级）。</div>
+<div class="wrap" id="wrap">
+  <canvas id="board"></canvas>
+  <aside id="stats"></aside>
+</div>
+<p class="note" id="note"></p>
+<script>window.onerror=function(e){document.body.dataset.check='JSERROR '+e;};</script>
+<script src="../data/board_map.js"></script>
+<script>
+(function (global) {
+  'use strict';
+
+  /* 只引 data/board_map.js，不引 src/ 下任何文件：双击 file:// 即可打开。 */
+  var map = global.DATA && global.DATA.boardMap;
+  if (!map) {
+    document.getElementById('fallback').style.display = 'block';
+    document.getElementById('wrap').style.display = 'none';
+    document.body.dataset.check = 'NO-DATA';
+    return;
+  }
+
+  /* ===== 预览页专用表现参数（不是游戏数值，不进 balance.js）===== */
+  var VIEW = {
+    cellW: 72, cellH: 62, pad: 22,
+    typeColor: { P: '#CFE0D8', D: '#5C7B66', W: '#FBF6E8', R: '#B23A2B', H: '#F3EBD9' },
+    lightText: '#FBF6E8', darkText: '#1C1914', grid: 'rgba(28,25,20,0.28)',
+    path: '#B23A2B', paper: '#F3EBD9',
+    font: '"KaiTi","STKaiti","Kaiti SC","SimSun",serif'
+  };
+  var EXPECT = { W: 12, D: 36, P: 28, R: 2, H: 2 };   // 8×10=80 格，实算已核对一致
+
+  var board = document.getElementById('board');
+  var cols = map.cols, rows = map.rowCount;
+  var W = cols * VIEW.cellW + VIEW.pad * 2;
+  var H = rows * VIEW.cellH + VIEW.pad * 2;
+  var dpr = Math.min(global.devicePixelRatio || 1, 2);
+  board.width = Math.round(W * dpr);
+  board.height = Math.round(H * dpr);
+  board.style.width = W + 'px';
+  board.style.height = H + 'px';
+  var ctx = board.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  function cellCenter(c, r) {
+    return {
+      x: VIEW.pad + c * VIEW.cellW + VIEW.cellW / 2,
+      y: VIEW.pad + r * VIEW.cellH + VIEW.cellH / 2
+    };
+  }
+  function typeAt(c, r) { return map.rows[r].charAt(c); }
+
+  /* 1) 底色 + 格线 */
+  ctx.fillStyle = VIEW.paper;
+  ctx.fillRect(0, 0, W, H);
+  for (var r = 0; r < rows; r++) {
+    for (var c = 0; c < cols; c++) {
+      var t = typeAt(c, r);
+      var x = VIEW.pad + c * VIEW.cellW;
+      var y = VIEW.pad + r * VIEW.cellH;
+      ctx.fillStyle = VIEW.typeColor[t] || VIEW.paper;
+      ctx.fillRect(x, y, VIEW.cellW, VIEW.cellH);
+      ctx.strokeStyle = VIEW.grid;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x + 0.5, y + 0.5, VIEW.cellW - 1, VIEW.cellH - 1);
+    }
+  }
+
+  /* 2) 两条路径：朱砂细线 + 节点小圆点（画在文字底下，保证坐标清楚） */
+  function drawPath(pts) {
+    if (!pts || pts.length < 2) { return; }
+    ctx.save();
+    ctx.strokeStyle = VIEW.path;
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.65;
+    ctx.beginPath();
+    for (var i = 0; i < pts.length; i++) {
+      var p = cellCenter(pts[i][0], pts[i][1]);
+      if (i === 0) { ctx.moveTo(p.x, p.y); } else { ctx.lineTo(p.x, p.y); }
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = VIEW.path;
+    for (var j = 0; j < pts.length; j++) {
+      var q = cellCenter(pts[j][0], pts[j][1]);
+      ctx.beginPath();
+      ctx.arc(q.x, q.y, 2.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+  drawPath(map.topPath);
+  drawPath(map.bottomPath);
+
+  /* 3) 每格中央写「列,行」；H 额外写「斗」，深底用浅字 */
+  for (var rr = 0; rr < rows; rr++) {
+    for (var cc = 0; cc < cols; cc++) {
+      var ty = typeAt(cc, rr);
+      var ctr = cellCenter(cc, rr);
+      var hero = (ty === 'H');
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = (ty === 'D' || ty === 'R') ? VIEW.lightText : VIEW.darkText;
+
+      if (hero) {
+        ctx.font = '24px ' + VIEW.font;
+        ctx.globalAlpha = 1;
+        ctx.fillText('斗', ctr.x, ctr.y - 7);
+        ctx.font = '10px ' + VIEW.font;
+        ctx.fillText(cc + ',' + rr, ctr.x, ctr.y + 15);
+      } else {
+        ctx.font = '12px ' + VIEW.font;
+        ctx.fillText(cc + ',' + rr, ctr.x, ctr.y);
+      }
+    }
+  }
+
+  /* 4) 出兵营箭头（朝路径下一个点）+ 阿斗红心 */
+  function drawArrow(from, to) {
+    var a = cellCenter(from[0], from[1]);
+    var b = cellCenter(to[0], to[1]);
+    var dx = b.x - a.x, dy = b.y - a.y;
+    var len = Math.sqrt(dx * dx + dy * dy) || 1;
+    var ux = dx / len, uy = dy / len;
+    var ox = a.x + ux * 2, oy = a.y + uy * 2;
+    var tipX = ox + ux * 19, tipY = oy + uy * 19;
+    ctx.save();
+    ctx.strokeStyle = VIEW.paper;
+    ctx.fillStyle = VIEW.paper;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(ox, oy);
+    ctx.lineTo(tipX, tipY);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(tipX, tipY);
+    ctx.lineTo(tipX - ux * 9 - uy * 5, tipY - uy * 9 + ux * 5);
+    ctx.lineTo(tipX - ux * 9 + uy * 5, tipY - uy * 9 - ux * 5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+  function drawHeart(c, r) {
+    var p = cellCenter(c, r);
+    ctx.save();
+    ctx.fillStyle = VIEW.path;
+    ctx.font = '17px ' + VIEW.font;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('♥', p.x + 21, p.y + 17);
+    ctx.restore();
+  }
+  drawArrow(map.topPath[0], map.topPath[1]);
+  drawArrow(map.bottomPath[0], map.bottomPath[1]);
+  drawHeart(map.adu.top[0], map.adu.top[1]);
+  drawHeart(map.adu.bottom[0], map.adu.bottom[1]);
+
+  /* 5) 半场分界线（行 4 / 行 5 之间） */
+  var splitY = VIEW.pad + 5 * VIEW.cellH;
+  ctx.save();
+  ctx.strokeStyle = VIEW.path;
+  ctx.globalAlpha = 0.75;
+  ctx.setLineDash([7, 5]);
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(VIEW.pad, splitY);
+  ctx.lineTo(W - VIEW.pad, splitY);
+  ctx.stroke();
+  ctx.restore();
+
+  /* 5.5) 四条边外框：上 / 下 / 左 / 右，墨色粗线，方便核对边界格 */
+  ctx.save();
+  ctx.strokeStyle = VIEW.darkText;
+  ctx.globalAlpha = 0.9;
+  ctx.lineWidth = 2.5;
+  ctx.strokeRect(VIEW.pad, VIEW.pad, cols * VIEW.cellW, rows * VIEW.cellH);
+  ctx.restore();
+
+  /* 6) 右上角统计：实算值 + 任务卡期望值对照 */
+  var count = { W: 0, D: 0, P: 0, R: 0, H: 0 };
+  for (var y2 = 0; y2 < rows; y2++) {
+    for (var x2 = 0; x2 < cols; x2++) {
+      var k = typeAt(x2, y2);
+      if (count[k] !== undefined) { count[k] += 1; }
+    }
+  }
+  var label = { W: 'W 白格可放置', D: 'D 深绿可铲格', P: 'P 浅绿敌人路径', R: 'R 红色出兵营', H: 'H 阿斗' };
+  var order = ['W', 'D', 'P', 'R', 'H'];
+  var html = '<p class="cap">格子统计 · 右上角</p><table>';
+  for (var i2 = 0; i2 < order.length; i2++) {
+    var key = order[i2];
+    html += '<tr><td><i class="sw" style="background:' + VIEW.typeColor[key] + '"></i>' + label[key] +
+      '</td><td class="n">' + count[key] + '</td><td class="e">期望 ' + EXPECT[key] + '</td></tr>';
+  }
+  html += '</table><div class="total">合计 ' + (cols * rows) + ' 格（' + cols + ' × ' + rows + '）</div>';
+  var diffs = order.filter(function (k) { return count[k] !== EXPECT[k]; });
+  if (diffs.length) {
+    html += '<div class="diff">' + diffs.map(function (k) {
+      return k + ' 实算 ' + count[k] + '，期望 ' + EXPECT[k];
+    }).join('；') + '。此处按 rows 原样绘制。</div>';
+  } else {
+    html += '<div class="ok-note">✓ 五类统计与期望全部一致</div>';
+  }
+  html += '<div class="paths">上半场路径 ' + map.topPath.length + ' 点：R(' + map.spawn.top.join(',') +
+    ') → H(' + map.adu.top.join(',') + ')<br>下半场路径 ' + map.bottomPath.length + ' 点：R(' +
+    map.spawn.bottom.join(',') + ') → H(' + map.adu.bottom.join(',') + ')<br>箭头 = 出兵方向 · ♥ = 阿斗 · 朱砂线 = 敌人路径</div>';
+
+  /* 7) 四项校验：四条边 / 路径 16 格 / 两斗两兵营 / 180° 对称 */
+  function reverse(s) { return s.split('').reverse().join(''); }
+  function edgeRow(r) { var s = ''; for (var c = 0; c < cols; c++) { s += typeAt(c, r); } return s; }
+  function edgeCol(c) { var s = ''; for (var r = 0; r < rows; r++) { s += typeAt(c, r); } return s; }
+  var eTop = edgeRow(0), eBottom = edgeRow(rows - 1);
+  var eLeft = edgeCol(0), eRight = edgeCol(cols - 1);
+  var edgesOK = reverse(eTop) === eBottom && reverse(eLeft) === eRight;
+
+  function pathOK(pts) {
+    if (!pts || pts.length !== 16) { return false; }
+    for (var i = 0; i < pts.length; i++) {
+      var t = typeAt(pts[i][0], pts[i][1]);
+      if (t !== 'P' && t !== 'R' && t !== 'H') { return false; }
+      if (i > 0) {
+        var d = Math.abs(pts[i][0] - pts[i - 1][0]) + Math.abs(pts[i][1] - pts[i - 1][1]);
+        if (d !== 1) { return false; }
+      }
+    }
+    return true;
+  }
+  var pathsOK = pathOK(map.topPath) && pathOK(map.bottomPath);
+
+  var heroCells = [], spawnCells = [];
+  for (var my = 0; my < rows; my++) {
+    for (var mx = 0; mx < cols; mx++) {
+      if (typeAt(mx, my) === 'H') { heroCells.push([mx, my]); }
+      if (typeAt(mx, my) === 'R') { spawnCells.push([mx, my]); }
+    }
+  }
+  function hasCell(list, p) {
+    for (var i = 0; i < list.length; i++) {
+      if (list[i][0] === p[0] && list[i][1] === p[1]) { return true; }
+    }
+    return false;
+  }
+  var marksOK = heroCells.length === 2 && spawnCells.length === 2 &&
+    hasCell(heroCells, map.adu.top) && hasCell(heroCells, map.adu.bottom) &&
+    hasCell(spawnCells, map.spawn.top) && hasCell(spawnCells, map.spawn.bottom) &&
+    hasCell(spawnCells, map.topPath[0]) && hasCell(heroCells, map.topPath[map.topPath.length - 1]) &&
+    hasCell(spawnCells, map.bottomPath[0]) && hasCell(heroCells, map.bottomPath[map.bottomPath.length - 1]);
+
+  var symCells = 0;
+  for (var sy = 0; sy < rows; sy++) {
+    for (var sx = 0; sx < cols; sx++) {
+      if (typeAt(sx, sy) === typeAt(cols - 1 - sx, rows - 1 - sy)) { symCells++; }
+    }
+  }
+  var symPath = map.topPath.length === map.bottomPath.length &&
+    map.topPath.every(function (p, i) {
+      var q = map.bottomPath[i];
+      return q[0] === cols - 1 - p[0] && q[1] === rows - 1 - p[1];
+    });
+  var symOK = symCells === cols * rows && symPath;
+
+  var checks = [
+    { ok: edgesOK, name: '四条边', detail: '上 ' + eTop + ' / 下 ' + eBottom + ' / 左 ' + eLeft + ' / 右 ' + eRight + '（上下、左右互为反转）' },
+    { ok: pathsOK, name: '路径 16 格', detail: '上下各 16 点、逐格相邻、全部落在 P/R/H 上' },
+    { ok: marksOK, name: '两斗 / 两兵营', detail: 'H(' + map.adu.top.join(',') + ')(' + map.adu.bottom.join(',') +
+      ') · R(' + map.spawn.top.join(',') + ')(' + map.spawn.bottom.join(',') + ')，与路径首尾一致' },
+    { ok: symOK, name: '180° 对称', detail: symCells + '/' + (cols * rows) + ' 格类型对称，双路径逐点旋转对应' }
+  ];
+  html += '<div class="paths" style="margin-top:10px"><b style="color:#F3EBD9">四项校验</b></div>';
+  checks.forEach(function (ch) {
+    html += '<div class="' + (ch.ok ? 'ok' : 'bad') + '">' + (ch.ok ? '✓' : '✗') + ' ' + ch.name +
+      '<br><span>' + ch.detail + '</span></div>';
+  });
+  document.getElementById('stats').innerHTML = html;
+  document.body.dataset.checks = checks.filter(function (ch) { return ch.ok; }).length + '/4';
+
+  document.getElementById('note').textContent =
+    'D 挖开后变 W；两条路径各 16 点，首尾分别是出兵营 R 与阿斗 H。行 8 已修正为 PPPPDPPP，全盘 180° 旋转对称。';
+
+  document.body.dataset.check = 'RENDERED-OK';
+})(globalThis);
+</script>
+</body>
+</html>
